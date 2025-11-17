@@ -1,6 +1,8 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime, timezone
 
 app = FastAPI()
 
@@ -12,6 +14,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class ContactMessage(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    message: str = Field(..., min_length=5, max_length=5000)
+
 @app.get("/")
 def read_root():
     return {"message": "Hello from FastAPI Backend!"}
@@ -19,6 +26,26 @@ def read_root():
 @app.get("/api/hello")
 def hello():
     return {"message": "Hello from the backend API!"}
+
+@app.post("/api/contact")
+async def submit_contact(msg: ContactMessage):
+    """Accept contact messages and store them in MongoDB if configured."""
+    # Try store in DB if available
+    saved_id = None
+    try:
+        from database import db
+        if db is not None:
+            doc = {
+                **msg.model_dump(),
+                "created_at": datetime.now(timezone.utc),
+            }
+            result = db["contactmessage"].insert_one(doc)
+            saved_id = str(result.inserted_id)
+    except Exception:
+        # Silently ignore DB issues but still return success
+        pass
+
+    return {"status": "ok", "saved": bool(saved_id), "id": saved_id}
 
 @app.get("/test")
 def test_database():
